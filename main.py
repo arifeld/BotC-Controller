@@ -1,13 +1,18 @@
-from consts import GAME_PHASE
+from HomeAssistant.homeassistant import HomeAssistantController
+from consts import EDITION_COLOURS, GAME_PHASE
 from dotenv import load_dotenv
 from SmartThings.smartthings import SmartThingsController
+from Arduino.arduino import ArduinoController
+
+import serial.tools.list_ports
 
 from statemachine import StateMachine, State, Event
 
 load_dotenv()
 
 class BOTCController(StateMachine):
-    pregame = State("Pre-Game", initial=True, value=GAME_PHASE.PRE_GAME)
+    game_configuration = State("Game Configuration", initial=True, value=GAME_PHASE.CONFIGURATION)
+    pregame = State("Pre-Game", value=GAME_PHASE.PRE_GAME)
     first_night = State("First Night", value=GAME_PHASE.FIRST_NIGHT)
     day_phase = State("Day Phase", value=GAME_PHASE.DAY)
     nominations_phase = State("Nominations Phase", value=GAME_PHASE.NOMINATIONS)
@@ -15,6 +20,7 @@ class BOTCController(StateMachine):
     postgame = State("Post-Game", final=True, value=GAME_PHASE.POST_GAME)
     
     states = {
+        GAME_PHASE.CONFIGURATION: game_configuration,
         GAME_PHASE.PRE_GAME: pregame,
         GAME_PHASE.FIRST_NIGHT: first_night,
         GAME_PHASE.DAY: day_phase,
@@ -22,6 +28,11 @@ class BOTCController(StateMachine):
         GAME_PHASE.NIGHT: night_phase,
         GAME_PHASE.POST_GAME: postgame
     }
+    
+    finish_config = Event(
+        states[GAME_PHASE.CONFIGURATION].to(states[GAME_PHASE.PRE_GAME]),
+        name="Finish game configuration"
+    )
     
     start = Event(
         states[GAME_PHASE.PRE_GAME].to(states[GAME_PHASE.FIRST_NIGHT]),
@@ -64,6 +75,28 @@ class BOTCController(StateMachine):
     )
     
     progression_options = {
+        GAME_PHASE.CONFIGURATION: [{
+            "label": "Finish Configuration",
+            "input": "1",
+            "event": "finish_config"
+        },{
+            "label": "Set Trouble Brewing",
+            "input": "2",
+            "non_state_event": "set_trouble_brewing"
+        }, {
+            "label": "Set Bad Moon Rising",
+            "input": "3",
+            "non_state_event": "set_bad_moon_rising"
+        },{
+            "label": "Set Sects and Violets",
+            "input": "4",
+            "non_state_event": "set_sects_and_violets"
+        },
+        {
+            "label": "Configure Arduino Devices",
+            "input": "5",
+            "non_state_event": "configure_arduino"
+        }],
         GAME_PHASE.PRE_GAME: [{
             "label": "Start Game",
             "input": "1",
@@ -88,10 +121,14 @@ class BOTCController(StateMachine):
             "label": "Start Night Phase",
             "input": "1",
             "event": "start_night"
+        }, {
+            "label": "Stop Alexa",
+            "input": "2",
+            "non_state_event": "stop_all_alexa"
         },
         {
             "label": "End Game via Nomination",
-            "input": "2",
+            "input": "3",
             "event": "end_game_via_nomination"
         }],
         GAME_PHASE.NIGHT: [{
@@ -100,8 +137,18 @@ class BOTCController(StateMachine):
             "event": "start_day"            
         },
         {
-            "label": "End Game via Night",
+            "label": "Set Player Dead",
             "input": "2",
+            "non_state_event": "set_player_dead"
+        },
+        {
+            "label": "Set Player Alive",
+            "input": "3",
+            "non_state_event": "set_player_alive"
+        },
+        {
+            "label": "End Game via Night",
+            "input": "4",
             "event": "end_game_via_night"
         }]
     }
@@ -110,26 +157,78 @@ class BOTCController(StateMachine):
     def __init__(self):
         super().__init__()
         self.smartthings_controller = SmartThingsController()
+        self.homeassistant_controller = HomeAssistantController()
         
-        
+        self.arduino_controller = ArduinoController()
+    
+    @pregame.enter
+    def entering_pre_game(self):
+        print("Entering Pre-Game phase...")
+        self.homeassistant_controller.turn_on_mood_light()
+        self.arduino_controller.start()
+            
     # Game phase actions
     @first_night.enter
     def entering_first_night(self):
         print("Entering First Night phase...")
-        self.smartthings_controller.turn_off_lights()
+        # self.smartthings_controller.turn_off_room_lights()
+        self.homeassistant_controller.turn_off_lights()
+        self.arduino_controller.start_night()
 
     @day_phase.enter
     def entering_day_phase(self):
         print("Entering Day phase...")
-        self.smartthings_controller.turn_on_lights()
+        # self.smartthings_controller.turn_on_room_lights()
+        self.homeassistant_controller.turn_on_lights()
+        self.arduino_controller.start_day()
+
+    @nominations_phase.enter
+    def entering_nominations_phase(self):
+        print("Entering Nominations phase...")
+        self.homeassistant_controller.trigger_gong()
         
     @night_phase.enter
     def entering_night_phase(self):
         print("Entering Night phase...")
-        self.smartthings_controller.turn_off_lights()
+        # self.smartthings_controller.turn_off_room_lights() 
+        self.homeassistant_controller.turn_off_lights()
+        self.arduino_controller.start_night()
+        
+        
+    def send_non_state(self, event_name):
+        if event_name == "set_trouble_brewing":
+            print("Setting Trouble Brewing edition...")
+            self.homeassistant_controller.set_mood_light_data(EDITION_COLOURS["TROUBLE_BREWING"])
+        elif event_name == "set_bad_moon_rising":
+            print("Setting Bad Moon Rising edition...")
+            self.homeassistant_controller.set_mood_light_data(EDITION_COLOURS["BAD_MOON_RISING"])
+        elif event_name == "set_sects_and_violets":
+            print("Setting Sects and Violets edition...")
+            self.homeassistant_controller.set_mood_light_data(EDITION_COLOURS["SECTS_AND_VIOLETS"])
+        elif event_name == "stop_all_alexa":
+            print("Stopping all Alexa devices...")
+            self.homeassistant_controller.stop_all_alexa()
+        elif event_name == "configure_arduino":
+            print("Starting Arduino device configuration...")
+            self.arduino_controller.start_config()
+        elif event_name == "set_player_dead":
+            player_id = input("Enter Player ID to set as dead: ").strip()
+            if player_id.isdigit():
+                self.arduino_controller.set_dead(int(player_id))
+            else:
+                print("Invalid Player ID. Must be an integer.")
+        elif event_name == "set_player_alive":
+            player_id = input("Enter Player ID to set as alive: ").strip()
+            if player_id.isdigit():
+                self.arduino_controller.set_alive(int(player_id))
+            else:
+                print("Invalid Player ID. Must be an integer.")
+        else:
+            print(f"Unknown non-state event: {event_name}")
+
         
     
-        
+
 class EventController():
     def __init__(self):
         self.botc = BOTCController()
@@ -145,7 +244,10 @@ class EventController():
             next_action = input(f"Next action: ").strip().lower()
             matched_option = next((opt for opt in options if opt['input'] == next_action), None)
             if matched_option is not None:
-                self.botc.send(matched_option['event'])
+                if "event" in matched_option:
+                    self.botc.send(matched_option['event'])
+                elif "non_state_event" in matched_option:
+                    self.botc.send_non_state(matched_option['non_state_event'])
             else:
                 print("Invalid input. Please try again.")
             
@@ -159,6 +261,11 @@ class EventController():
     
 
 def main():
+    # List COM serial ports
+    print("COM devices:")
+    print([comport.device for comport in serial.tools.list_ports.comports()])
+    print("If the Arduino is not on COM5, please update the port in Arduino/arduino.py")
+    
     controller = EventController()
     controller._draw_graph()
     controller.start_game()

@@ -1,44 +1,9 @@
 import os
-from requests import Session
-import threading
 
-class SmartThingsAPI(Session):
+from util.auth_requests import AuthRequests
+    
+class SmartThingsAPI(AuthRequests):
     ROOT_URL = "https://api.smartthings.com/v1/"
     
-    def __init__(self, base_url=ROOT_URL):
-        super().__init__()
-        self.base_url = base_url
-        
-    def _make_request(self, method, url, *args, **kwargs):
-        joined_url = self.base_url + url
-        
-        headers = {
-            "Authorization": "Bearer " + os.getenv("PAT")
-        }
-        
-        return super().request(method, joined_url, headers=headers, *args, **kwargs)
-    
-    def get(self, url):
-        r = self._make_request("GET", url)     
-        return r.json()
-    
-    def post(self, url, data, mutable_ret=list|None):
-        r = self._make_request("POST", url, json=data)     
-        
-        if mutable_ret is not None:
-            mutable_ret.append(r.json())
-        
-        return r.json()
-    
-    def batch_post(self, commands):
-        threads = []
-        results = []
-        for command in commands:
-            thread = threading.Thread(target=self.post, args=(command['url'], command['data'], results))
-            thread.start()
-            threads.append(thread)
-        
-        for thread in threads:
-            thread.join()
-            
-        return results
+    def __init__(self):
+        super().__init__(base_url=self.ROOT_URL, token=os.getenv("PAT"))
