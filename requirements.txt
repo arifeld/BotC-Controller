@@ -1,7 +1,6 @@
 ansiwrap==0.8.4
 certifi==2025.11.12
 charset-normalizer==3.4.4
-console-menu==0.8.0
 future==1.0.0
 idna==3.11
 iso8601==2.1.0
