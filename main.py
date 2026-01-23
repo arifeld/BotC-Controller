@@ -17,7 +17,7 @@ class BOTCController(StateMachine):
     day_phase = State("Day Phase", value=GAME_PHASE.DAY)
     nominations_phase = State("Nominations Phase", value=GAME_PHASE.NOMINATIONS)
     night_phase = State("Night Phase", value=GAME_PHASE.NIGHT)
-    postgame = State("Post-Game", final=True, value=GAME_PHASE.POST_GAME)
+    postgame = State("Post-Game", value=GAME_PHASE.POST_GAME)
     
     states = {
         GAME_PHASE.CONFIGURATION: game_configuration,
@@ -74,6 +74,16 @@ class BOTCController(StateMachine):
         name="End game via night"
     )
     
+    revert_end_game = Event(
+        states[GAME_PHASE.POST_GAME].to(states[GAME_PHASE.DAY]),
+        name="Revert from post-game to day phase"
+    )
+    
+    restart_game = Event(
+        states[GAME_PHASE.POST_GAME].to(states[GAME_PHASE.CONFIGURATION]),
+        name="Restart the game"
+    )
+    
     progression_options = {
         GAME_PHASE.CONFIGURATION: [{
             "label": "Finish Configuration",
@@ -113,23 +123,47 @@ class BOTCController(StateMachine):
             "event": "start_nominations"
         },
         {
-            "label": "Start Night Phase (Skip Nominations)",
+            "label": "Set Player Dead",
             "input": "2",
+            "non_state_event": "start_player_kill_screen"
+        },
+        {
+            "label": "Set Player Alive",
+            "input": "3",
+            "non_state_event": "start_player_revive_screen"
+        }, 
+        {
+            "label": "Start Night Phase (Skip Nominations)",
+            "input": "4",
             "event": "skip_nominations"
+        },
+        {
+            "label": "Stop Alexa",
+            "input": "5",
+            "non_state_event": "stop_all_alexa"
         }],
         GAME_PHASE.NOMINATIONS: [{
             "label": "Start Night Phase",
             "input": "1",
             "event": "start_night"
         }, {
-            "label": "Stop Alexa",
+            "label": "Restart Nomination Config",
             "input": "2",
-            "non_state_event": "stop_all_alexa"
+            "non_state_event": "start_nomination_config"   
+        },{
+            "label": "Kill Player",
+            "input": "3",
+            "non_state_event": "start_player_kill_screen"
         },
         {
             "label": "End Game via Nomination",
-            "input": "3",
+            "input": "4",
             "event": "end_game_via_nomination"
+        },
+        {
+            "label": "Stop Alexa",
+            "input": "5",
+            "non_state_event": "stop_all_alexa"
         }],
         GAME_PHASE.NIGHT: [{
             "label": "Start Day Phase",
@@ -139,17 +173,34 @@ class BOTCController(StateMachine):
         {
             "label": "Set Player Dead",
             "input": "2",
-            "non_state_event": "set_player_dead"
+            "non_state_event": "start_player_kill_screen"
         },
         {
             "label": "Set Player Alive",
             "input": "3",
-            "non_state_event": "set_player_alive"
+            "non_state_event": "start_player_revive_screen"
         },
         {
             "label": "End Game via Night",
             "input": "4",
             "event": "end_game_via_night"
+        }],
+        GAME_PHASE.POST_GAME: [{
+            "label": "Go Back",
+            "input": "1",
+            "event": "revert_end_game"
+        }, {
+            "label": "Good Wins",
+            "input": "2",
+            "non_state_event": "set_good_wins"
+        }, {
+            "label": "Evil Wins",
+            "input": "3",
+            "non_state_event": "set_evil_wins"
+        }, {
+            "label": "Restart Game",
+            "input": "4",
+            "non_state_event": "restart_game"
         }]
     }
     
@@ -186,6 +237,7 @@ class BOTCController(StateMachine):
     def entering_nominations_phase(self):
         print("Entering Nominations phase...")
         self.homeassistant_controller.trigger_gong()
+        self.arduino_controller.start_nomination_config()
         
     @night_phase.enter
     def entering_night_phase(self):
@@ -193,7 +245,12 @@ class BOTCController(StateMachine):
         # self.smartthings_controller.turn_off_room_lights() 
         self.homeassistant_controller.turn_off_lights()
         self.arduino_controller.start_night()
-        
+    
+    @postgame.enter
+    def entering_post_game(self):
+        print("Entering Post-Game phase...")
+        # self.smartthings_controller.turn_off_room_lights() 
+        self.arduino_controller.enter_end_game()
         
     def send_non_state(self, event_name):
         if event_name == "set_trouble_brewing":
@@ -211,6 +268,15 @@ class BOTCController(StateMachine):
         elif event_name == "configure_arduino":
             print("Starting Arduino device configuration...")
             self.arduino_controller.start_config()
+            
+        elif event_name == "start_player_kill_screen":
+            print("Starting player kill screen...")
+            self.arduino_controller.kill_player_screen()
+            
+        elif event_name == "start_player_revive_screen":
+            print("Starting player revive screen...")
+            self.arduino_controller.revive_player_screen()
+            
         elif event_name == "set_player_dead":
             player_id = input("Enter Player ID to set as dead: ").strip()
             if player_id.isdigit():
@@ -223,6 +289,26 @@ class BOTCController(StateMachine):
                 self.arduino_controller.set_alive(int(player_id))
             else:
                 print("Invalid Player ID. Must be an integer.")
+        elif event_name == "start_nomination_config":
+            print("Starting nomination configuration...")
+            self.arduino_controller.start_nomination_config()
+            
+        elif event_name == "set_good_wins":
+            print("Setting Good Wins...")
+            self.homeassistant_controller.set_good_wins()
+            self.arduino_controller.set_good_wins()
+
+        elif event_name == "set_evil_wins":
+            print("Setting Evil Wins...")
+            self.homeassistant_controller.set_evil_wins()
+            self.arduino_controller.set_evil_wins()
+            
+        elif event_name == "restart_game":
+            print("Restarting the game...")
+            self.homeassistant_controller.turn_on_mood_light()
+            self.arduino_controller.restart_game()
+            self.restart_game()
+            
         else:
             print(f"Unknown non-state event: {event_name}")
 
@@ -230,6 +316,9 @@ class BOTCController(StateMachine):
     
 
 class EventController():
+    
+    
+    
     def __init__(self):
         self.botc = BOTCController()
         
@@ -260,12 +349,7 @@ class EventController():
           
     
 
-def main():
-    # List COM serial ports
-    print("COM devices:")
-    print([comport.device for comport in serial.tools.list_ports.comports()])
-    print("If the Arduino is not on COM5, please update the port in Arduino/arduino.py")
-    
+def main():    
     controller = EventController()
     controller._draw_graph()
     controller.start_game()

@@ -21,9 +21,22 @@ static NimBLECharacteristic* inputKeyboard;  // Report ID 1 (REPORT)
 static bool connected = false;
 static bool sentOnce = false;
 
-int buttonOne = 1;
+int buttonOne = 10;
+int buttonTwo = 20;
+int buttonThree = 21;
+int buttonFour = 0;
+
 int buttonOneState = 0;
 bool buttonOneInPress = false;
+
+int buttonTwoState = 0;
+bool buttonTwoInPress = false;
+
+int buttonThreeState = 0;
+bool buttonThreeInPress = false;
+
+int buttonFourState = 0;
+bool buttonFourInPress = false;
 
 /* ------------------ Callbacks ------------------ */
 
@@ -106,10 +119,13 @@ enum class GameState {
   PRE_START,
   FIRST_NIGHT,
   DAY,
+  NOMINATIONS_CONFIG,
   NOMINATIONS,
+  POST_NOMINATIONS,
   KILL_PLAYER,
   REVIVE_PLAYER,
   NIGHT,
+  END_GAME,
   OFF
 };
 
@@ -156,14 +172,20 @@ void updateStage() {
     display.print("First Night");
   } else if (state == GameState::DAY) {
     display.print("Day");
+  } else if (state == GameState::NOMINATIONS_CONFIG) {
+    display.print("Nom Config");
   } else if (state == GameState::NOMINATIONS) {
-    display.print("Nominations");
+    display.print("Nom Votes");
+  } else if (state == GameState::POST_NOMINATIONS) {
+    display.print("Post Nom");
   } else if (state == GameState::NIGHT) {
     display.print("Night");
   } else if (state == GameState::KILL_PLAYER) {
     display.print("Killing Player");
   } else if (state == GameState::REVIVE_PLAYER) {
     display.print("Reviving Player");
+  } else if (state == GameState::END_GAME) {
+    display.print("Game Over");
   } else if (state == GameState::OFF) {
     display.print("Off");
   }
@@ -209,15 +231,21 @@ void updateOps() {
   } else if (state == GameState::FIRST_NIGHT) {
     updateOpsBulk("To Day", "N/A", "N/A", "N/A");
   } else if (state == GameState::DAY) {
-    updateOpsBulk("Start Nominations", "N/A", "N/A", "To Night");
+    updateOpsBulk("Start Nominations", "Kill Player", "Revive Player", "To Night");
+  } else if (state == GameState::NOMINATIONS_CONFIG) {
+    updateOpsBulk("Next Player", "Previous Player", "Start Nominations", "Return");
   } else if (state == GameState::NOMINATIONS) {
-    updateOpsBulk("Set Nominated", "Start Votes", "N/A", "To Night");
+    updateOpsBulk("Yes Vote", "No Vote", "Vote Skipped", "End");
+  } else if (state == GameState::POST_NOMINATIONS) {
+    updateOpsBulk("To Night", "Restart Nominations", "Kill Player", "End Game");
   } else if (state == GameState::NIGHT) {
     updateOpsBulk("To Day", "Kill Player", "Revive Player", "End Game");
   } else if (state == GameState::KILL_PLAYER) {
     updateOpsBulk("Next Player", "Previous Player", "Kill Current", "Return");
   } else if (state == GameState::REVIVE_PLAYER) {
     updateOpsBulk("Next Player", "Previous Player", "Revive Current", "Return");
+  } else if (state == GameState::END_GAME) {
+    updateOpsBulk("Go Back", "Good Wins", "Evil Wins", "Restart Game");
   } else if (state == GameState::OFF) {
     updateOpsBulk("Restart", "N/A", "N/A", "N/A");
   }
@@ -234,13 +262,18 @@ char CMD_NIGHT[] = "night";
 char CMD_ALIVE[] = "alive";
 char CMD_DEAD[] = "dead";
 char CMD_NO_VOTE[] = "dvote";
-char CMD_NOMINATIONS[] = "noms";
+char CMD_NOMINATIONS[] = "snomcon";
 char CMD_SET_PLAYER[] = "splayer";
 char CMD_START_KILL[] = "skill";
 char CMD_END_KILL[] = "ekill";
 char CMD_START_REVIVE[] = "srevive";
 char CMD_END_REVIVE[] = "erevive";
 
+char CMD_PREPARE_NOMINATIONS[] = "pnomin";
+char CMD_START_NOMINATIONS[] = "snomin";
+char CMD_POST_NOMINATIONS[] = "enomin";
+
+char CMD_GAME_END[] = "endgame";
 
 typedef struct botc_message {
   char command[32];
@@ -253,27 +286,46 @@ botc_message message;
 // Callback function that is called when data is received from ESP32-NOW
 void onDataRecv(const esp_now_recv_info_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&message, incomingData, sizeof(message));
+
+  Serial.println("Performing command check...");
+  if (message.command == nullptr || message.command[0] == '\0') {
+    Serial.println("Received null message.command!");
+    return;
+  }
+
+  Serial.print("Running command: ");
+  Serial.println(message.command);
+
   runCommand(message.command);
 
   Serial.print("Bytes received: ");
   Serial.println(len);
   Serial.print("Command: ");
-  Serial.println(message.command);
+  if (!message.command) {
+    Serial.println("ERROR UNKNOWN COMMAND");
+  }
+  else {
+    Serial.println(message.command);
+  }
 }
 
 /* HANDLER */
 void runCommand(const char command[32]) {
 
   if (strcmp(command, CMD_START) == 0) {
-    state = GameState::FIRST_NIGHT;
+    state = GameState::PRE_START;
   }
 
-  else if (strcmp(command, CMD_DAY) == 0) {
+  if (strcmp(command, CMD_DAY) == 0) {
     state = GameState::DAY;
   }
 
   else if (strcmp(command, CMD_NIGHT) == 0) {
-    state = GameState::NIGHT;
+    if (state == GameState::PRE_START) {
+      state = GameState::FIRST_NIGHT;
+    } else {
+      state = GameState::NIGHT;
+    }
   }
 
   else if (strcmp(command, CMD_OFF) == 0) {
@@ -281,7 +333,15 @@ void runCommand(const char command[32]) {
   }
 
   else if (strcmp(command, CMD_NOMINATIONS) == 0) {
+    state = GameState::NOMINATIONS_CONFIG;
+  }
+
+  else if (strcmp(command, CMD_START_NOMINATIONS) == 0) {
     state = GameState::NOMINATIONS;
+  }
+
+  else if (strcmp(command, CMD_POST_NOMINATIONS) == 0) {
+    state = GameState::POST_NOMINATIONS;
   }
 
   else if (strcmp(command, CMD_START_KILL) == 0) {
@@ -302,9 +362,16 @@ void runCommand(const char command[32]) {
     state = prevState;
   }
 
-  else if (strncmp(command, CMD_SET_PLAYER, sizeof(CMD_SET_PLAYER) / sizeof(CMD_SET_PLAYER[0]))) {
+  else if (strcmp(command, CMD_GAME_END) == 0) {
+    state = GameState::END_GAME;
+  }
+
+  else if (strncmp(command, CMD_SET_PLAYER, 7) == 0) { // hard-coded to "splayer"
     currentPlayerID = getSplitID(command);
     updatePlayer();
+  } else {
+    Serial.print("Unknown command: ");
+    Serial.println(command);
   }
 
   updateStage();
@@ -358,8 +425,6 @@ void setup() {
 
   Serial.println("Advertising HID keyboard...");
 
-  pinMode(buttonOne, INPUT_PULLUP);
-
   Serial.println("Enabling SPI OLED");
 
   // OLED display - start SPI
@@ -395,9 +460,13 @@ void setup() {
 
   // ESP-NOW initialised; setup receiver callback
   esp_now_register_recv_cb(onDataRecv);
-
-
   Serial.println("WiFi Setup Done.");
+
+  // And finally, setup our button pins
+  pinMode(buttonOne, INPUT_PULLUP);
+  pinMode(buttonTwo, INPUT_PULLUP);
+  pinMode(buttonThree, INPUT_PULLUP);
+  pinMode(buttonFour, INPUT_PULLUP);
 
   Serial.println("Setup complete!");
 }
@@ -419,7 +488,41 @@ void loop() {
     Serial.println("Button released!");
   }
 
-  delay(10);
+  buttonTwoState = digitalRead(buttonTwo);
+  if (buttonTwoState == LOW && !buttonTwoInPress) {
+    Serial.println("Button pressed!");
+    sendKey(0, KEY_2);
+    sendKey(0, KEY_ENTER);
+    Serial.println("Key 2 sent!");
+    buttonTwoInPress = true;
+  } else if (buttonTwoState == HIGH && buttonTwoInPress) {
+    buttonTwoInPress = false;
+    Serial.println("Button released!");
+  }
+
+  buttonThreeState = digitalRead(buttonThree);
+  if (buttonThreeState == LOW && !buttonThreeInPress) {
+    Serial.println("Button pressed!");
+    sendKey(0, KEY_3);
+    sendKey(0, KEY_ENTER);
+    Serial.println("Key 3 sent!");
+    buttonThreeInPress = true;
+  } else if (buttonThreeState == HIGH && buttonThreeInPress) {
+    buttonThreeInPress = false;
+    Serial.println("Button released!");
+  }
+
+  buttonFourState = digitalRead(buttonFour);
+  if (buttonFourState == LOW && !buttonFourInPress) {
+    Serial.println("Button pressed!");
+    sendKey(0, KEY_4);
+    sendKey(0, KEY_ENTER);
+    Serial.println("Key 4 sent!");
+    buttonFourInPress = true;
+  } else if (buttonFourState == HIGH && buttonFourInPress) {
+    buttonFourInPress = false;
+    Serial.println("Button released!");
+  }
 }
 
 /* ---- Util ---- */

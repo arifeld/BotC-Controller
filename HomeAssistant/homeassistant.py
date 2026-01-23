@@ -77,3 +77,19 @@ class HomeAssistantController():
             "b": b,
             "brightness": brightness
         }
+        
+    def set_good_wins(self):
+        self.set_mood_light_data({
+            "r": 0,
+            "g": 255,
+            "b": 0
+        })
+        self.turn_on_mood_light()
+        
+    def set_evil_wins(self):
+        self.set_mood_light_data({
+            "r": 255,
+            "g": 0,
+            "b": 0
+        })
+        self.turn_on_mood_light()

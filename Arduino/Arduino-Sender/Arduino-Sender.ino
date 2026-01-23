@@ -5,6 +5,19 @@
 uint8_t macAddresses[][6] = {
   { 0xAC, 0xA7, 0x04, 0xB9, 0x74, 0x60 },
   { 0x80, 0xF1, 0xB2, 0x88, 0xBB, 0x98 },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0x67, 0x6C },
+  { 0xAC, 0xA7, 0x04, 0xB8, 0x79, 0x94 },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0x92, 0xD8 },
+  { 0x80, 0xF1, 0xB2, 0x6D, 0xC0, 0x2C },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0xA6, 0x7C },
+  { 0x80, 0xF1, 0xB2, 0x8A, 0xFE, 0x1C },
+  { 0xAC, 0xA7, 0x04, 0xB9, 0xB8, 0xA0 },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0xAA, 0x40 },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0x96, 0xB0 },
+  { 0xAC, 0xA7, 0x04, 0xB8, 0x3E, 0x98 },
+  { 0xAC, 0xA7, 0x04, 0xBA, 0xB2, 0xCC },
+  { 0xAC, 0xA7, 0x04, 0xB8, 0x7C, 0x3C },
+  { 0x80, 0xF1, 0xB2, 0x88, 0xBD, 0x84 },
 };
 
 uint8_t controllerMAC[6] = {
@@ -16,7 +29,7 @@ int totalPlayers = totalDevices;  // by default we assume all devices are in pla
 
 // Basic lookup table. Each index maps to a MAC address in the above array.
 // This way (since we will have a maximum of 15 players/devices), we can dynamically set which player is using which device/MAC.
-int playerDevice[15] = { 0, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+int playerDevice[15] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
 
 const String SERIAL_RED = String("red");
 
@@ -55,6 +68,21 @@ const String SERIAL_PLAYER_NO_VOTE = String("dvote");
 
 const String SERIAL_PLAYER_REVIVE = String("revive");
 const String SERIAL_PLAYER_FORCE_REVIVE = String("forcer"); // command is in form "forcer,id" where id is the player ID
+
+const String SERIAL_START_NOMINATION_CONFIG = String("snomcon");
+const String SERIAL_PREPARE_FOR_NOMINATIONS = String("pnomin");
+const String SERIAL_START_NOMINATIONS = String("snomin");
+const String SERIAL_POST_NOMINATIONS = String("enomin");
+const String SERIAL_VOTED_YES = String("vyes");
+const String SERIAL_VOTED_NO = String("vno");
+const String SERIAL_VOTE_SKIPPED = String("vskip");
+
+const String SERIAL_END_GAME = String("endgame");
+const String SERIAL_GOOD_WINS = String("goodwins");
+const String SERIAL_EVIL_WINS = String("evilwins");
+
+const String DEBUG_CURRENT_PLAYER = String("cur");
+
 
 char serialCharCommand[32];
 
@@ -147,10 +175,10 @@ void setup() {
 
 // Define our commands based on what action we take, this helps us to reduce code repetition
 
-String broadcastCommands[] = { SERIAL_RED, SERIAL_BLUE, SERIAL_START, SERIAL_DAY, SERIAL_NIGHT };
+String broadcastCommands[] = { SERIAL_RED, SERIAL_BLUE, SERIAL_START, SERIAL_DAY, SERIAL_NIGHT, SERIAL_GOOD_WINS, SERIAL_EVIL_WINS };
 const int broadcastCommandCount = sizeof(broadcastCommands) / sizeof(broadcastCommands[0]);
 
-String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE };
+String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE, SERIAL_START_NOMINATION_CONFIG, SERIAL_POST_NOMINATIONS, SERIAL_END_GAME };
 const int controllerCommandCount = sizeof(controllerCommands) / sizeof(controllerCommands[0]);
 
 
@@ -171,7 +199,6 @@ void loop() {
     // Send to controller only commands
     } else if (stringInArray(serialString, controllerCommands, controllerCommandCount)) {
       sendController(serialString);
-
     // More complex commands
     } else if (serialString == SERIAL_NEXT_PLAYER) {
       nextPlayer();
@@ -189,6 +216,14 @@ void loop() {
       sendCommand(SERIAL_PLAYER_DEAD, getPlayerDevice(currentPlayerID));
     } else if (serialString == SERIAL_PLAYER_REVIVE) {
       sendCommand(SERIAL_PLAYER_REVIVE, getPlayerDevice(currentPlayerID));
+    } else if (serialString == SERIAL_START_NOMINATIONS) {
+      startNominationsCurrentPlayer();
+    } else if (serialString == SERIAL_VOTED_YES) {
+      currentPlayerVotedYes();
+    } else if (serialString == SERIAL_VOTED_NO) {
+      currentPlayerVotedNo();
+    } else if (serialString == SERIAL_VOTE_SKIPPED) {
+      currentPlayerVoteSkipped();
     } else if (serialString.startsWith(SERIAL_PLAYER_FORCE_DEAD)) {
       // Get the player ID in range [0, 14]
       playerID = getSafePlayerID(serialString);
@@ -253,15 +288,45 @@ void sendMessage(const botc_message message, const uint8_t *peer_addr) {
 /* ------ COMMAND FUNCTIONS ------ */
 
 void nextPlayer() {
-  currentPlayerID = (currentPlayerID + 1) % totalPlayers;
+  currentPlayerID = modulo((currentPlayerID + 1), totalPlayers);
   sendController(SERIAL_SET_PLAYER + "," + String(currentPlayerID));
+  Serial.print("Current player: ");
+  Serial.println(currentPlayerID);
 }
 
 void previousPlayer() {
-  currentPlayerID = (currentPlayerID - 1) % totalPlayers;
+  currentPlayerID = modulo((currentPlayerID - 1), totalPlayers);
   sendController(SERIAL_SET_PLAYER + "," + String(currentPlayerID));
+  Serial.print("Current player: ");
+  Serial.println(currentPlayerID);
 }
 
+void startNominationsCurrentPlayer() {
+  // Turn on all the lights to day mode if they aren't already (e.g. if we are on a second nomination)
+  broadcast(SERIAL_PREPARE_FOR_NOMINATIONS);
+  delay(50); // make sure the nominated player also receives the message before sending the next command
+  sendController(SERIAL_START_NOMINATIONS);
+  sendCommand(SERIAL_START_NOMINATIONS, getPlayerDevice(currentPlayerID));
+  
+  // Automatically move to the next player as they will have the first vote
+  delay(50);
+  nextPlayer();
+}
+
+void currentPlayerVotedYes() {
+  sendCommand(SERIAL_VOTED_YES, getPlayerDevice(currentPlayerID));
+  nextPlayer();
+}
+
+void currentPlayerVotedNo() {
+  sendCommand(SERIAL_VOTED_NO, getPlayerDevice(currentPlayerID));
+  nextPlayer();
+}
+
+void currentPlayerVoteSkipped() {
+  sendCommand(SERIAL_VOTE_SKIPPED, getPlayerDevice(currentPlayerID));
+  nextPlayer();
+}
 
 void startConfiguration() {
   Serial.println("Starting configuration with Player ID 0 and Device ID 0");
@@ -403,4 +468,8 @@ uint8_t *getPlayerDevice(int id) {
   }
 
   return macAddresses[playerDevice[id]];
+}
+
+int modulo(int x, int N) {
+    return (x % N + N) % N;
 }
