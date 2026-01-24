@@ -12,9 +12,6 @@ class HomeAssistantController():
     def _trigger_script(self, script_entity_id, data=None):
         url = f"/api/services/script/turn_on"
         
-        # Temporarily disabled
-        return
-        
         payload = {
             "entity_id": script_entity_id,
             "variables": {}

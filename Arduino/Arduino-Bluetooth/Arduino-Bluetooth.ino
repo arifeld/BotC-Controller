@@ -21,22 +21,40 @@ static NimBLECharacteristic* inputKeyboard;  // Report ID 1 (REPORT)
 static bool connected = false;
 static bool sentOnce = false;
 
-int buttonOne = 10;
-int buttonTwo = 20;
-int buttonThree = 21;
-int buttonFour = 0;
+int buttonOne = 0;
+int buttonTwo = 21;
+int buttonThree = 20;
+int buttonFour = 10;
 
 int buttonOneState = 0;
 bool buttonOneInPress = false;
 
+// Debounce variables for Button 1
+int lastButtonOneReading = HIGH;
+unsigned long lastDebounceTimeOne = 0;
+
 int buttonTwoState = 0;
 bool buttonTwoInPress = false;
+
+// Debounce variables for Button 2
+int lastButtonTwoReading = HIGH;
+unsigned long lastDebounceTimeTwo = 0;
 
 int buttonThreeState = 0;
 bool buttonThreeInPress = false;
 
+// Debounce variables for Button 3
+int lastButtonThreeReading = HIGH;
+unsigned long lastDebounceTimeThree = 0;
+
 int buttonFourState = 0;
 bool buttonFourInPress = false;
+
+// Debounce variables for Button 4
+int lastButtonFourReading = HIGH;
+unsigned long lastDebounceTimeFour = 0;
+
+const unsigned long debounceDelay = 100; // milliseconds
 
 /* ------------------ Callbacks ------------------ */
 
@@ -119,6 +137,7 @@ enum class GameState {
   PRE_START,
   FIRST_NIGHT,
   DAY,
+  PRE_REVEAL,
   NOMINATIONS_CONFIG,
   NOMINATIONS,
   POST_NOMINATIONS,
@@ -174,6 +193,8 @@ void updateStage() {
     display.print("Day");
   } else if (state == GameState::NOMINATIONS_CONFIG) {
     display.print("Nom Config");
+  } else if (state == GameState::PRE_REVEAL) {
+    display.print("Pre-Day Reveal");
   } else if (state == GameState::NOMINATIONS) {
     display.print("Nom Votes");
   } else if (state == GameState::POST_NOMINATIONS) {
@@ -232,6 +253,8 @@ void updateOps() {
     updateOpsBulk("To Day", "N/A", "N/A", "N/A");
   } else if (state == GameState::DAY) {
     updateOpsBulk("Start Nominations", "Kill Player", "Revive Player", "To Night");
+  } else if (state == GameState::PRE_REVEAL) {
+    updateOpsBulk("Start Day", "N/A", "N/A", "N/A");
   } else if (state == GameState::NOMINATIONS_CONFIG) {
     updateOpsBulk("Next Player", "Previous Player", "Start Nominations", "Return");
   } else if (state == GameState::NOMINATIONS) {
@@ -239,7 +262,7 @@ void updateOps() {
   } else if (state == GameState::POST_NOMINATIONS) {
     updateOpsBulk("To Night", "Restart Nominations", "Kill Player", "End Game");
   } else if (state == GameState::NIGHT) {
-    updateOpsBulk("To Day", "Kill Player", "Revive Player", "End Game");
+    updateOpsBulk("To Pre-Day", "Kill Player", "Revive Player", "End Game");
   } else if (state == GameState::KILL_PLAYER) {
     updateOpsBulk("Next Player", "Previous Player", "Kill Current", "Return");
   } else if (state == GameState::REVIVE_PLAYER) {
@@ -259,6 +282,8 @@ char CMD_OFF[] = "off";
 char CMD_START[] = "start";
 char CMD_DAY[] = "day";
 char CMD_NIGHT[] = "night";
+char CMD_PRE_REVEAL[] = "prerev";
+
 char CMD_ALIVE[] = "alive";
 char CMD_DEAD[] = "dead";
 char CMD_NO_VOTE[] = "dvote";
@@ -326,6 +351,10 @@ void runCommand(const char command[32]) {
     } else {
       state = GameState::NIGHT;
     }
+  }
+
+  else if (strcmp(command, CMD_PRE_REVEAL) == 0) {
+    state = GameState::PRE_REVEAL;
   }
 
   else if (strcmp(command, CMD_OFF) == 0) {
@@ -468,6 +497,23 @@ void setup() {
   pinMode(buttonThree, INPUT_PULLUP);
   pinMode(buttonFour, INPUT_PULLUP);
 
+  // Initialize debounce state: read initial stable states and align "last reading" vars
+  buttonOneState = digitalRead(buttonOne);
+  lastButtonOneReading = buttonOneState;
+  lastDebounceTimeOne = 0;
+
+  buttonTwoState = digitalRead(buttonTwo);
+  lastButtonTwoReading = buttonTwoState;
+  lastDebounceTimeTwo = 0;
+
+  buttonThreeState = digitalRead(buttonThree);
+  lastButtonThreeReading = buttonThreeState;
+  lastDebounceTimeThree = 0;
+
+  buttonFourState = digitalRead(buttonFour);
+  lastButtonFourReading = buttonFourState;
+  lastDebounceTimeFour = 0;
+
   Serial.println("Setup complete!");
 }
 
@@ -475,54 +521,93 @@ void setup() {
 /* ------------------ Loop ------------------ */
 
 void loop() {
-
-  buttonOneState = digitalRead(buttonOne);
-  if (buttonOneState == LOW && !buttonOneInPress) {
-    Serial.println("Button pressed!");
-    sendKey(0, KEY_1);
-    sendKey(0, KEY_ENTER);
-    Serial.println("Key 1 sent!");
-    buttonOneInPress = true;
-  } else if (buttonOneState == HIGH && buttonOneInPress) {
-    buttonOneInPress = false;
-    Serial.println("Button released!");
+  // Button 1 debounce
+  int reading1 = digitalRead(buttonOne);
+  if (reading1 != lastButtonOneReading) {
+    lastDebounceTimeOne = millis();
   }
-
-  buttonTwoState = digitalRead(buttonTwo);
-  if (buttonTwoState == LOW && !buttonTwoInPress) {
-    Serial.println("Button pressed!");
-    sendKey(0, KEY_2);
-    sendKey(0, KEY_ENTER);
-    Serial.println("Key 2 sent!");
-    buttonTwoInPress = true;
-  } else if (buttonTwoState == HIGH && buttonTwoInPress) {
-    buttonTwoInPress = false;
-    Serial.println("Button released!");
+  if ((millis() - lastDebounceTimeOne) > debounceDelay) {
+    if (reading1 != buttonOneState) {
+      buttonOneState = reading1;
+      if (buttonOneState == LOW && !buttonOneInPress) {
+        Serial.println("Button pressed!");
+        sendKey(0, KEY_1);
+        sendKey(0, KEY_ENTER);
+        Serial.println("Key 1 sent!");
+        buttonOneInPress = true;
+      } else if (buttonOneState == HIGH && buttonOneInPress) {
+        buttonOneInPress = false;
+        Serial.println("Button released!");
+      }
+    }
   }
+  lastButtonOneReading = reading1;
 
-  buttonThreeState = digitalRead(buttonThree);
-  if (buttonThreeState == LOW && !buttonThreeInPress) {
-    Serial.println("Button pressed!");
-    sendKey(0, KEY_3);
-    sendKey(0, KEY_ENTER);
-    Serial.println("Key 3 sent!");
-    buttonThreeInPress = true;
-  } else if (buttonThreeState == HIGH && buttonThreeInPress) {
-    buttonThreeInPress = false;
-    Serial.println("Button released!");
+  // Button 2 debounce
+  int reading2 = digitalRead(buttonTwo);
+  if (reading2 != lastButtonTwoReading) {
+    lastDebounceTimeTwo = millis();
   }
+  if ((millis() - lastDebounceTimeTwo) > debounceDelay) {
+    if (reading2 != buttonTwoState) {
+      buttonTwoState = reading2;
+      if (buttonTwoState == LOW && !buttonTwoInPress) {
+        Serial.println("Button pressed!");
+        sendKey(0, KEY_2);
+        sendKey(0, KEY_ENTER);
+        Serial.println("Key 2 sent!");
+        buttonTwoInPress = true;
+      } else if (buttonTwoState == HIGH && buttonTwoInPress) {
+        buttonTwoInPress = false;
+        Serial.println("Button released!");
+      }
+    }
+  }
+  lastButtonTwoReading = reading2;
 
-  buttonFourState = digitalRead(buttonFour);
-  if (buttonFourState == LOW && !buttonFourInPress) {
-    Serial.println("Button pressed!");
-    sendKey(0, KEY_4);
-    sendKey(0, KEY_ENTER);
-    Serial.println("Key 4 sent!");
-    buttonFourInPress = true;
-  } else if (buttonFourState == HIGH && buttonFourInPress) {
-    buttonFourInPress = false;
-    Serial.println("Button released!");
+  // Button 3 debounce
+  int reading3 = digitalRead(buttonThree);
+  if (reading3 != lastButtonThreeReading) {
+    lastDebounceTimeThree = millis();
   }
+  if ((millis() - lastDebounceTimeThree) > debounceDelay) {
+    if (reading3 != buttonThreeState) {
+      buttonThreeState = reading3;
+      if (buttonThreeState == LOW && !buttonThreeInPress) {
+        Serial.println("Button pressed!");
+        sendKey(0, KEY_3);
+        sendKey(0, KEY_ENTER);
+        Serial.println("Key 3 sent!");
+        buttonThreeInPress = true;
+      } else if (buttonThreeState == HIGH && buttonThreeInPress) {
+        buttonThreeInPress = false;
+        Serial.println("Button released!");
+      }
+    }
+  }
+  lastButtonThreeReading = reading3;
+
+  // Button 4 debounce
+  int reading4 = digitalRead(buttonFour);
+  if (reading4 != lastButtonFourReading) {
+    lastDebounceTimeFour = millis();
+  }
+  if ((millis() - lastDebounceTimeFour) > debounceDelay) {
+    if (reading4 != buttonFourState) {
+      buttonFourState = reading4;
+      if (buttonFourState == LOW && !buttonFourInPress) {
+        Serial.println("Button pressed!");
+        sendKey(0, KEY_4);
+        sendKey(0, KEY_ENTER);
+        Serial.println("Key 4 sent!");
+        buttonFourInPress = true;
+      } else if (buttonFourState == HIGH && buttonFourInPress) {
+        buttonFourInPress = false;
+        Serial.println("Button released!");
+      }
+    }
+  }
+  lastButtonFourReading = reading4;
 }
 
 /* ---- Util ---- */

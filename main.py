@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from SmartThings.smartthings import SmartThingsController
 from Arduino.arduino import ArduinoController
 
-import serial.tools.list_ports
+import pyautogui
 
 from statemachine import StateMachine, State, Event
 
@@ -16,6 +16,7 @@ class BOTCController(StateMachine):
     first_night = State("First Night", value=GAME_PHASE.FIRST_NIGHT)
     day_phase = State("Day Phase", value=GAME_PHASE.DAY)
     nominations_phase = State("Nominations Phase", value=GAME_PHASE.NOMINATIONS)
+    prereveal_phase = State("Pre-Day Reveal Phase", value=GAME_PHASE.PRE_REVEAL)
     night_phase = State("Night Phase", value=GAME_PHASE.NIGHT)
     postgame = State("Post-Game", value=GAME_PHASE.POST_GAME)
     
@@ -25,6 +26,7 @@ class BOTCController(StateMachine):
         GAME_PHASE.FIRST_NIGHT: first_night,
         GAME_PHASE.DAY: day_phase,
         GAME_PHASE.NOMINATIONS: nominations_phase,
+        GAME_PHASE.PRE_REVEAL: prereveal_phase,
         GAME_PHASE.NIGHT: night_phase,
         GAME_PHASE.POST_GAME: postgame
     }
@@ -54,16 +56,22 @@ class BOTCController(StateMachine):
         name="Skip nominations"
     )
     
+    start_prereveal = Event(
+        states[GAME_PHASE.NIGHT].to(states[GAME_PHASE.PRE_REVEAL]),
+        name="Start pre-day reveal phase"
+    )
+
+    start_day = Event(
+        states[GAME_PHASE.PRE_REVEAL].to(states[GAME_PHASE.DAY]),
+        name="Start day phase"
+    )
+    
     start_night = Event(
         states[GAME_PHASE.NOMINATIONS].to(states[GAME_PHASE.NIGHT]),
         name="Start night phase"
     )
     
-    start_day = Event(
-        states[GAME_PHASE.NIGHT].to(states[GAME_PHASE.DAY]),
-        name="Start day phase"
-    )
-    
+
     end_game_via_nomination = Event(
         states[GAME_PHASE.NOMINATIONS].to(states[GAME_PHASE.POST_GAME]),
         name="End game via nomination"
@@ -117,6 +125,11 @@ class BOTCController(StateMachine):
             "input": "1",
             "event": "first_day"
         }],
+        GAME_PHASE.PRE_REVEAL: [{
+            "label": "Start Day Phase",
+            "input": "1",
+            "event": "start_day"
+        }],
         GAME_PHASE.DAY: [{
             "label": "Start Nominations",
             "input": "1",
@@ -166,9 +179,9 @@ class BOTCController(StateMachine):
             "non_state_event": "stop_all_alexa"
         }],
         GAME_PHASE.NIGHT: [{
-            "label": "Start Day Phase",
+            "label": "Start Pre-Day Phase",
             "input": "1",
-            "event": "start_day"            
+            "event": "start_prereveal"            
         },
         {
             "label": "Set Player Dead",
@@ -223,15 +236,32 @@ class BOTCController(StateMachine):
     def entering_first_night(self):
         print("Entering First Night phase...")
         # self.smartthings_controller.turn_off_room_lights()
+        pyautogui.press("playpause")
         self.homeassistant_controller.turn_off_lights()
         self.arduino_controller.start_night()
+
+    @first_night.exit
+    def exiting_first_night(self):
+        print("Exiting First Night phase...")
+        self.homeassistant_controller.turn_on_lights()
+        pyautogui.press("volumedown", presses=50, interval=0.05)
+        pyautogui.press("playpause")
+
+    @prereveal_phase.enter
+    def entering_prereveal_phase(self):
+        print("Entering Pre-Reveal phase...")
+        self.homeassistant_controller.turn_on_lights()
+        pyautogui.press("volumedown", presses=50, interval=0.05)
+        pyautogui.press("playpause")
+        self.arduino_controller.start_prereveal()
 
     @day_phase.enter
     def entering_day_phase(self):
         print("Entering Day phase...")
         # self.smartthings_controller.turn_on_room_lights()
-        self.homeassistant_controller.turn_on_lights()
         self.arduino_controller.start_day()
+        
+
 
     @nominations_phase.enter
     def entering_nominations_phase(self):
@@ -245,6 +275,8 @@ class BOTCController(StateMachine):
         # self.smartthings_controller.turn_off_room_lights() 
         self.homeassistant_controller.turn_off_lights()
         self.arduino_controller.start_night()
+        pyautogui.press("nexttrack")
+        pyautogui.press("volumeup", presses=50, interval=0.05)
     
     @postgame.enter
     def entering_post_game(self):

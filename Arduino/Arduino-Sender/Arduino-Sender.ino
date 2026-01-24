@@ -53,6 +53,7 @@ const String SERIAL_START_REVIVE = String("srevive");
 const String SERIAL_END_REVIVE = String("erevive");
 
 const String SERIAL_NIGHT = String("night");
+const String SERIAL_PRE_REVEAL = String("prerev");
 
 const String SERIAL_OFF = String("off");
 
@@ -178,7 +179,7 @@ void setup() {
 String broadcastCommands[] = { SERIAL_RED, SERIAL_BLUE, SERIAL_START, SERIAL_DAY, SERIAL_NIGHT, SERIAL_GOOD_WINS, SERIAL_EVIL_WINS };
 const int broadcastCommandCount = sizeof(broadcastCommands) / sizeof(broadcastCommands[0]);
 
-String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE, SERIAL_START_NOMINATION_CONFIG, SERIAL_POST_NOMINATIONS, SERIAL_END_GAME };
+String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE, SERIAL_START_NOMINATION_CONFIG, SERIAL_POST_NOMINATIONS, SERIAL_END_GAME, SERIAL_PRE_REVEAL };
 const int controllerCommandCount = sizeof(controllerCommands) / sizeof(controllerCommands[0]);
 
 
@@ -232,7 +233,12 @@ void loop() {
       Serial.println(playerID);
 
       sendCommand(SERIAL_PLAYER_DEAD, getPlayerDevice(playerID));
+    } else if (serialString.startsWith(SERIAL_SET_PLAYER)) {
+      playerID = getSafePlayerID(serialString);
 
+      currentPlayerID = playerID;
+      sendController(SERIAL_SET_PLAYER + "," + String(currentPlayerID));
+  
     } else if (serialString.startsWith(SERIAL_PLAYER_NO_VOTE)) {
       // Get the player ID in range [0, 14]
       playerID = getSafePlayerID(serialString);
