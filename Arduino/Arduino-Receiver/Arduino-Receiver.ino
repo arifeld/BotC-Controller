@@ -12,9 +12,11 @@
 
 */
 
+#include "arduino_secrets.h"
 
 #include <esp_now.h>
 #include <WiFi.h>
+#include <ArduinoOTA.h>
 
 // Configuration / general commands
 char CMD_RED[] = "red";
@@ -126,7 +128,7 @@ void runCommand(const char command[32], const float brightness = 100) {
   }
 
   else if (strcmp(CMD_SET_NOMINATED, command) == 0) {
-    specialColour(139, 0, 0, brightness);
+    specialColour(128, 0, 128, brightness);
   }
 
   else if (strcmp(CMD_VOTED_YES, command) == 0) {
@@ -171,6 +173,8 @@ void setup() {
   Serial.begin(115200);
 
   // Set the ESP32 into WiFi station mode
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
   WiFi.mode(WIFI_STA);
 
   // Init ESP-NOW
@@ -195,10 +199,15 @@ void setup() {
 
   playerState = PlayerState::ALIVE;
 
+  ArduinoOTA.begin();
+
   Serial.println("Good to go!");
 }
 
 void loop() {
+  // OTA Updates
+  ArduinoOTA.handle();
+
   if (state == GameState::DAY) {
     flicker(100);
   } else if (state == GameState::NIGHT) {
@@ -208,13 +217,10 @@ void loop() {
 
 void flicker(int brightness) {
   if (playerState == PlayerState::ALIVE) {
-    setColour(random(120) + 135, random(10) + 30, random(2), 50);
+    setColour(random(120) + 135, random(10) + 30, random(2), 80);
     delay(100);
   } else if (playerState == PlayerState::DEAD_ONE_VOTE) {
-    setColour(random(120) + 135, random(10) + 30, random(2), 50);
-    delay(1000);
-    turnOff();
-    delay(1000);
+    setColour(255, 255, 255, 80);
   } else {
     turnOff();
   }

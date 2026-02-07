@@ -100,6 +100,7 @@ botc_message message;
 int playerID = -1;
 
 int currentPlayerID = 0;
+int nominatedPlayerID = 0;
 
 String serialString;
 
@@ -179,7 +180,7 @@ void setup() {
 String broadcastCommands[] = { SERIAL_RED, SERIAL_BLUE, SERIAL_START, SERIAL_DAY, SERIAL_NIGHT, SERIAL_GOOD_WINS, SERIAL_EVIL_WINS };
 const int broadcastCommandCount = sizeof(broadcastCommands) / sizeof(broadcastCommands[0]);
 
-String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE, SERIAL_START_NOMINATION_CONFIG, SERIAL_POST_NOMINATIONS, SERIAL_END_GAME, SERIAL_PRE_REVEAL };
+String controllerCommands[] = { SERIAL_NOMINATIONS, SERIAL_START_KILL, SERIAL_END_KILL, SERIAL_START_REVIVE, SERIAL_END_REVIVE, SERIAL_START_NOMINATION_CONFIG, SERIAL_END_GAME, SERIAL_PRE_REVEAL };
 const int controllerCommandCount = sizeof(controllerCommands) / sizeof(controllerCommands[0]);
 
 
@@ -213,6 +214,13 @@ void loop() {
       configSetDeviceForPlayer();
     } else if (serialString == SERIAL_END_CONFIG) {
       endConfiguration();
+    } else if (serialString == SERIAL_POST_NOMINATIONS) {
+      sendController(SERIAL_POST_NOMINATIONS);
+      delay(50);
+      currentPlayerID = nominatedPlayerID;
+      sendController(SERIAL_SET_PLAYER + "," + String(currentPlayerID));
+      Serial.print("Current player: ");
+      Serial.println(currentPlayerID);
     } else if (serialString == SERIAL_PLAYER_DEAD) {
       sendCommand(SERIAL_PLAYER_DEAD, getPlayerDevice(currentPlayerID));
     } else if (serialString == SERIAL_PLAYER_REVIVE) {
@@ -300,6 +308,10 @@ void nextPlayer() {
   Serial.println(currentPlayerID);
 }
 
+void nextPlayerNoController() {
+  currentPlayerID = modulo((currentPlayerID + 1), totalPlayers);
+}
+
 void previousPlayer() {
   currentPlayerID = modulo((currentPlayerID - 1), totalPlayers);
   sendController(SERIAL_SET_PLAYER + "," + String(currentPlayerID));
@@ -313,6 +325,7 @@ void startNominationsCurrentPlayer() {
   delay(50); // make sure the nominated player also receives the message before sending the next command
   sendController(SERIAL_START_NOMINATIONS);
   sendCommand(SERIAL_START_NOMINATIONS, getPlayerDevice(currentPlayerID));
+  nominatedPlayerID = currentPlayerID;
   
   // Automatically move to the next player as they will have the first vote
   delay(50);
@@ -321,17 +334,17 @@ void startNominationsCurrentPlayer() {
 
 void currentPlayerVotedYes() {
   sendCommand(SERIAL_VOTED_YES, getPlayerDevice(currentPlayerID));
-  nextPlayer();
+  nextPlayerNoController();
 }
 
 void currentPlayerVotedNo() {
   sendCommand(SERIAL_VOTED_NO, getPlayerDevice(currentPlayerID));
-  nextPlayer();
+  nextPlayerNoController();
 }
 
 void currentPlayerVoteSkipped() {
   sendCommand(SERIAL_VOTE_SKIPPED, getPlayerDevice(currentPlayerID));
-  nextPlayer();
+  nextPlayerNoController();
 }
 
 void startConfiguration() {

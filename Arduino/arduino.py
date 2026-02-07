@@ -35,6 +35,7 @@ class ArduinoController:
             "DEAD": "dead",
             "DEAD_VOTE_USED": "dvote",
             "ALIVE": "alive",
+            "REVIVE_PLAYER": "revive",
             
             "NEXT_PLAYER": "nplayer",
             "PREVIOUS_PLAYER": "pplayer",
@@ -103,8 +104,8 @@ class ArduinoController:
         
     def _get_set_player(self):
         player_id = input("Enter player ID to set as current: ").strip()
-        if player_id.isdigit() and 0 <= int(player_id) < self.player_count:
-            self.current_player = int(player_id)
+        if player_id.isdigit() and 1 <= int(player_id) < self.player_count + 1:
+            self.current_player = int(player_id) - 1
             self.send_command(f"{self.commands["SET_PLAYER"]},{self.current_player}")
         else:
             print("Invalid player ID. Please try again.")
@@ -181,7 +182,7 @@ class ArduinoController:
                 self.current_player = (self.current_player - 1) % self.player_count
                 
             elif user_input == "3":
-                self.send_command(self.commands["START_REVIVE"])
+                self.send_command(self.commands["REVIVE_PLAYER"])
                 
             elif user_input == "4":
                 self.send_command(self.commands["END_REVIVE"])

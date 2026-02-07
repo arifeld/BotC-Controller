@@ -217,7 +217,7 @@ void updatePlayer() {
   display.fillRect(0, 16, 128, 16, SH110X_BLACK);
   display.setCursor(0, 16);
   display.print("Current Player: ");
-  display.print(currentPlayerID);
+  display.print(currentPlayerID + 1);
   display.display();
 }
 

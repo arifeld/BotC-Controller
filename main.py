@@ -20,6 +20,8 @@ class BOTCController(StateMachine):
     night_phase = State("Night Phase", value=GAME_PHASE.NIGHT)
     postgame = State("Post-Game", value=GAME_PHASE.POST_GAME)
     
+    
+    
     states = {
         GAME_PHASE.CONFIGURATION: game_configuration,
         GAME_PHASE.PRE_GAME: pregame,
@@ -114,6 +116,11 @@ class BOTCController(StateMachine):
             "label": "Configure Arduino Devices",
             "input": "5",
             "non_state_event": "configure_arduino"
+        },
+        {
+            "label": "Enable/Disable Audio Control",
+            "input": "6",
+            "non_state_event": "toggle_audio_control"
         }],
         GAME_PHASE.PRE_GAME: [{
             "label": "Start Game",
@@ -177,7 +184,12 @@ class BOTCController(StateMachine):
             "label": "Stop Alexa",
             "input": "5",
             "non_state_event": "stop_all_alexa"
-        }],
+        },
+        {
+            "label": "Set Player Alive",
+            "input": "6",
+            "non_state_event": "start_player_revive_screen"
+        }, ],
         GAME_PHASE.NIGHT: [{
             "label": "Start Pre-Day Phase",
             "input": "1",
@@ -224,6 +236,8 @@ class BOTCController(StateMachine):
         self.homeassistant_controller = HomeAssistantController()
         
         self.arduino_controller = ArduinoController()
+        
+        self.controlling_audio = False
     
     @pregame.enter
     def entering_pre_game(self):
@@ -236,7 +250,8 @@ class BOTCController(StateMachine):
     def entering_first_night(self):
         print("Entering First Night phase...")
         # self.smartthings_controller.turn_off_room_lights()
-        pyautogui.press("playpause")
+        if self.controlling_audio:
+            pyautogui.press("playpause")
         self.homeassistant_controller.turn_off_lights()
         self.arduino_controller.start_night()
 
@@ -244,15 +259,17 @@ class BOTCController(StateMachine):
     def exiting_first_night(self):
         print("Exiting First Night phase...")
         self.homeassistant_controller.turn_on_lights()
-        pyautogui.press("volumedown", presses=50, interval=0.05)
-        pyautogui.press("playpause")
+        if self.controlling_audio:
+            pyautogui.press("volumedown", presses=50, interval=0.05)
+            pyautogui.press("playpause")
 
     @prereveal_phase.enter
     def entering_prereveal_phase(self):
         print("Entering Pre-Reveal phase...")
         self.homeassistant_controller.turn_on_lights()
-        pyautogui.press("volumedown", presses=50, interval=0.05)
-        pyautogui.press("playpause")
+        if self.controlling_audio:
+            pyautogui.press("volumedown", presses=50, interval=0.05)
+            pyautogui.press("playpause")
         self.arduino_controller.start_prereveal()
 
     @day_phase.enter
@@ -275,8 +292,10 @@ class BOTCController(StateMachine):
         # self.smartthings_controller.turn_off_room_lights() 
         self.homeassistant_controller.turn_off_lights()
         self.arduino_controller.start_night()
-        pyautogui.press("nexttrack")
-        pyautogui.press("volumeup", presses=50, interval=0.05)
+        
+        if self.controlling_audio:
+            pyautogui.press("nexttrack")
+            pyautogui.press("volumeup", presses=50, interval=0.05)
     
     @postgame.enter
     def entering_post_game(self):
@@ -341,6 +360,11 @@ class BOTCController(StateMachine):
             self.arduino_controller.restart_game()
             self.restart_game()
             
+        elif event_name == "toggle_audio_control":
+            self.controlling_audio = not self.controlling_audio
+            status = "enabled" if self.controlling_audio else "disabled"
+            print(f"Audio control has been {status}.")
+            
         else:
             print(f"Unknown non-state event: {event_name}")
 
@@ -348,9 +372,6 @@ class BOTCController(StateMachine):
     
 
 class EventController():
-    
-    
-    
     def __init__(self):
         self.botc = BOTCController()
         
@@ -372,9 +393,6 @@ class EventController():
             else:
                 print("Invalid input. Please try again.")
             
-            
-            
-
             
     def _draw_graph(self):
         self.botc._graph().write_png("botc_state_machine.png")

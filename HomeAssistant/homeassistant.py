@@ -17,6 +17,7 @@ class HomeAssistantController():
             "variables": {}
         }
         
+        
         if data is not None:
             payload["variables"] = data
             
